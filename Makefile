@@ -161,7 +161,7 @@ endef
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=controller-manager-role crd:ignoreUnexportedFields=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=controller-manager-role crd:ignoreUnexportedFields=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases output:webhook:artifacts:config=config/webhook/base
 	$(call fetch-external-crds,github.com/openshift/api,route/v1)
 	$(call fetch-external-crds,github.com/openshift/api,user/v1)
 
@@ -261,11 +261,11 @@ uninstall: prepare ## Uninstall CRDs from the K8s cluster specified in ~/.kube/c
 
 .PHONY: deploy
 deploy: prepare ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build config/default | kubectl apply --namespace $(OPERATOR_NAMESPACE) -f -
+	$(KUSTOMIZE) build config/default-with-webhook | kubectl apply --namespace $(OPERATOR_NAMESPACE) -f -
 
 .PHONY: undeploy
 undeploy: prepare ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+	$(KUSTOMIZE) build config/default-with-webhook | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
 ## Location to install dependencies to
 LOCALBIN ?= $(shell pwd)/bin
@@ -325,6 +325,7 @@ WARNINGMSG = "provided API should have an example annotation"
 bundle: prepare operator-sdk ## Generate bundle manifests and metadata, then validate generated files.
 	$(OPERATOR_SDK) generate kustomize manifests -q
 	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS) 2>&1 | grep -v $(WARNINGMSG)
+	$(KUSTOMIZE) build config/webhook/bundle > bundle/manifests/opendatahub-operator-webhook.yaml
 	$(OPERATOR_SDK) bundle validate ./$(BUNDLE_DIR) 2>&1 | grep -v $(WARNINGMSG)
 	mv bundle.Dockerfile Dockerfiles/
 	rm -f bundle/manifests/opendatahub-operator-webhook-service_v1_service.yaml
@@ -399,7 +400,7 @@ catalog-prepare: catalog-clean opm yq ## Prepare the catalog by adding bundles t
 # The template defines bundle images and channel relationships in a declarative way.
 .PHONY: catalog-build
 catalog-build: catalog-prepare
-	$(IMAGE_BUILDER) build --no-cache --load -f Dockerfiles/catalog.Dockerfile -t $(CATALOG_IMG) .
+	$(IMAGE_BUILDER) buildx build --no-cache --load -f Dockerfiles/catalog.Dockerfile ${IMAGE_BUILD_FLAGS} -t $(CATALOG_IMG) .
 
 # Push the catalog image.
 .PHONY: catalog-push

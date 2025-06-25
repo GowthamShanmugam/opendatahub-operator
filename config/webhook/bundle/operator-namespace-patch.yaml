@@ -1,0 +1,41 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: mutating-webhook-configuration
+webhooks:
+- name: datasciencecluster-defaulter.opendatahub.io
+  clientConfig:
+    service:
+      namespace: opendatahub-operator-system
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCg==
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validating-webhook-configuration
+webhooks:
+- name: datasciencecluster-validator.opendatahub.io
+  clientConfig:
+    service:
+      namespace: opendatahub-operator-system
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCg==
+- name: dscinitialization-validator.opendatahub.io
+  clientConfig:
+    service:
+      namespace: opendatahub-operator-system
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCg==
+- name: kserve-kueuelabels-validator.opendatahub.io
+  clientConfig:
+    service:
+      namespace: opendatahub-operator-system
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCg==
+- name: kubeflow-kueuelabels-validator.opendatahub.io
+  clientConfig:
+    service:
+      namespace: opendatahub-operator-system
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCg==
+- name: ray-kueuelabels-validator.opendatahub.io
+  clientConfig:
+    service:
+      namespace: opendatahub-operator-system
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCg==

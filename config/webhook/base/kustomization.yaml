@@ -1,0 +1,6 @@
+resources:
+- service.yaml
+- manifests.yaml
+
+#patches:
+#- path: webhook-namespace-selector-patch.yaml
