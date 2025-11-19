@@ -428,11 +428,35 @@ bundle: prepare operator-sdk ## Generate bundle manifests and metadata, then val
 	rm -f $(BUNDLE_DIR)/manifests/rhods-operator-webhook-service_v1_service.yaml
 CLEANFILES += rhoai-bundle odh-bundle
 
+
+.PHONY: bundle-e2e
+bundle-e2e: prepare operator-sdk ## Generate bundle manifests for e2e testing with custom image replacements.
+	$(OPERATOR_SDK) generate kustomize manifests --package $(OPERATOR_PACKAGE) --input-dir $(CONFIG_DIR)/manifests --output-dir $(CONFIG_DIR)/manifests -q
+	$(KUSTOMIZE) build $(CONFIG_DIR)/manifests | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS) --package $(OPERATOR_PACKAGE) --kustomize-dir $(CONFIG_DIR)/manifests --output-dir $(BUNDLE_DIR) 2>&1 | grep -v $(WARNINGMSG)
+	$(OPERATOR_SDK) bundle validate ./$(BUNDLE_DIR) 2>&1 | grep -v $(WARNINGMSG)
+	@if [ -d "$(BUNDLE_DIR)/manifests" ]; then \
+		find $(BUNDLE_DIR)/manifests -type f -name "*.yaml" -exec $(SED_COMMAND) -i 's|quay.io/rhoai/odh-kube-auth-proxy-rhel9:latest|quay.io/opendatahub/odh-kube-auth-proxy:latest|g' {} +; \
+	fi
+	$(SED_COMMAND) -i 's#COPY #COPY --from=builder /workspace/#' bundle.Dockerfile
+	cat Dockerfiles/e2e-tests/build-bundle-e2e.Dockerfile bundle.Dockerfile > Dockerfiles/e2e-tests/bundle-e2e.Dockerfile
+	rm bundle.Dockerfile
+	rm -f $(BUNDLE_DIR)/manifests/opendatahub-operator-webhook-service_v1_service.yaml
+	rm -f $(BUNDLE_DIR)/manifests/rhods-operator-webhook-service_v1_service.yaml
+
 # The bundle image is multi-stage to preserve the ability to build without invoking make
 # We use build args to ensure the variables are passed to the underlying internal make invocation
 .PHONY: bundle-build
 bundle-build: bundle
 	$(IMAGE_BUILDER) build --no-cache -f Dockerfiles/$(BUNDLE_DOCKERFILE_FILENAME) --platform $(PLATFORM) -t $(BUNDLE_IMG) \
+	--build-arg BUNDLE_IMG=$(BUNDLE_IMG) \
+	--build-arg IMAGE_TAG_BASE=$(IMAGE_TAG_BASE) \
+	--build-arg IMG_TAG=$(IMG_TAG) \
+	--build-arg OPERATOR_VERSION=$(VERSION) \
+	.
+
+.PHONY: bundle-build-e2e
+bundle-build-e2e: bundle-e2e ## Build bundle image for e2e testing with custom image replacements.
+	$(IMAGE_BUILDER) build --no-cache -f Dockerfiles/e2e-tests/bundle-e2e.Dockerfile --platform $(PLATFORM) -t $(BUNDLE_IMG) \
 	--build-arg BUNDLE_IMG=$(BUNDLE_IMG) \
 	--build-arg IMAGE_TAG_BASE=$(IMAGE_TAG_BASE) \
 	--build-arg IMG_TAG=$(IMG_TAG) \
