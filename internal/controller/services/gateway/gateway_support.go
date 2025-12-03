@@ -123,7 +123,10 @@ func GetGatewayDomain(ctx context.Context, cli client.Client) (string, error) {
 	}, gateway)
 	if err == nil {
 		if len(gateway.Spec.Listeners) > 0 && gateway.Spec.Listeners[0].Hostname != nil {
-			return string(*gateway.Spec.Listeners[0].Hostname), nil
+			hostname := string(*gateway.Spec.Listeners[0].Hostname)
+			// Strip wildcard prefix if present (e.g., "*.example.com" -> "example.com")
+			hostname, _ = strings.CutPrefix(hostname, "*.")
+			return hostname, nil
 		}
 	}
 
@@ -224,7 +227,7 @@ func createGateway(rr *odhtypes.ReconciliationRequest, certSecretName string, do
 	if certSecretName != "" {
 		allowedNamespaces := gwapiv1.NamespacesFromSelector
 		httpsMode := gwapiv1.TLSModeTerminate
-		hostname := gwapiv1.Hostname(domain)
+		hostname := gwapiv1.Hostname("*." + domain)
 		httpsListener := gwapiv1.Listener{
 			Name:     "https",
 			Protocol: gwapiv1.HTTPSProtocolType,

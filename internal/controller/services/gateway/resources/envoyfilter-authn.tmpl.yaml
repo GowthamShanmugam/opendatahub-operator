@@ -35,6 +35,10 @@ spec:
               allowed_headers:
                 patterns:
                 - exact: cookie
+                - exact: x-auth-request-redirect
+              headers_to_add:
+               - key: "x-auth-request-redirect"
+                 value: "%REQ(:SCHEME)%://%REQ(:AUTHORITY)%%REQ(:PATH)%"  # This will set the redirect to the original request path
             authorization_response:
               allowed_upstream_headers:
                 patterns:

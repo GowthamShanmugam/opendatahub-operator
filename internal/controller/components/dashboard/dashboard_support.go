@@ -77,7 +77,7 @@ func computeKustomizeVariable(ctx context.Context, cli client.Client, platform c
 	}
 
 	return map[string]string{
-		"dashboard-url": fmt.Sprintf("https://%s/", consoleLinkDomain),
+		"dashboard-url": fmt.Sprintf("https://odh-dashboard.%s/", consoleLinkDomain),
 		"section-title": sectionTitle[platform],
 	}, nil
 }

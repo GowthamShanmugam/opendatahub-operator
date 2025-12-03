@@ -286,7 +286,7 @@ func getTemplateData(ctx context.Context, rr *odhtypes.ReconciliationRequest) (m
 		"TLSCertsVolumeName":       TLSCertsVolumeName,
 		"TLSCertsMountPath":        TLSCertsMountPath,
 		"EnvoyFilter":              AuthnFilterName,
-		"RedirectURL":              fmt.Sprintf("https://%s/oauth2/callback", hostname),
+		"RedirectURL":              fmt.Sprintf("https://redirect.%s/oauth2/callback", hostname),
 		"DestinationRuleName":      DestinationRuleName,
 		"CookieExpire":             cookieExpire,
 		"CookieRefresh":            cookieRefresh,
