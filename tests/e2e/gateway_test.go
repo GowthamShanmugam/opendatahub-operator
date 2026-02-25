@@ -455,6 +455,17 @@ func (tc *GatewayTestCtx) ValidateOAuthCallbackRoute(t *testing.T) {
 	t.Log("OAuth callback HTTPRoute validation completed")
 }
 
+// jq path selectors for EnvoyFilter validation (index varies when legacy redirect patch is present).
+const (
+	extAuthzListJq  = `[.spec.configPatches[] | select(.patch.value.name == "envoy.filters.http.ext_authz")]`
+	extAuthzPatchJq = extAuthzListJq + `[0]`
+	// Lua token-forwarding (excludes redirect); name can be envoy.filters.http.lua or envoy.lua.
+
+	luaTokenListJq = `[.spec.configPatches[] | select((.patch.value.name == "envoy.filters.http.lua" or .patch.value.name == "envoy.lua")` +
+		` and (.patch.value.typed_config.inline_code | contains("x-auth-request-access-token")))]`
+	luaTokenPatchJq = luaTokenListJq + `[0]`
+)
+
 // ValidateEnvoyFilter validates the EnvoyFilter for external authorization.
 func (tc *GatewayTestCtx) ValidateEnvoyFilter(t *testing.T) {
 	t.Helper()
@@ -475,33 +486,28 @@ func (tc *GatewayTestCtx) ValidateEnvoyFilter(t *testing.T) {
 			// workload selector
 			jq.Match(`.spec.workloadSelector.labels."%s" == "%s"`, labels.GatewayAPI.GatewayName, gatewayName),
 
-			jq.Match(`.spec.configPatches | length == 2`),
+			// At least 2 patches (ext_authz + Lua). May be 3 if legacy redirect patch is still present (pre-PR#3179).
+			jq.Match(`.spec.configPatches | length >= 2`),
 
-			// Patch 0: ext_authz
-			jq.Match(`.spec.configPatches[0].applyTo == "HTTP_FILTER"`),
-			jq.Match(`.spec.configPatches[0].match.context == "GATEWAY"`),
-			jq.Match(`.spec.configPatches[0].patch.operation == "INSERT_BEFORE"`),
-			jq.Match(`.spec.configPatches[0].patch.value.name == "envoy.filters.http.ext_authz"`),
+			// ext_authz patch exists (find by name; index varies if legacy redirect present)
+			jq.Match(extAuthzListJq+` | length == 1`),
+			jq.Match(extAuthzPatchJq+`.applyTo == "HTTP_FILTER"`),
+			jq.Match(extAuthzPatchJq+`.match.context == "GATEWAY"`),
+			jq.Match(extAuthzPatchJq+`.patch.operation == "INSERT_BEFORE"`),
+			jq.Match(extAuthzPatchJq+`.patch.value.typed_config.http_service.server_uri.cluster == "%s"`, istioEDSClusterName),
+			jq.Match(extAuthzPatchJq+`.patch.value.typed_config.http_service.server_uri.timeout == "5s"`),
+			jq.Match(extAuthzPatchJq+`.patch.value.typed_config.http_service.server_uri.uri == "%s"`, authProxyURI),
+			jq.Match(extAuthzPatchJq+`.patch.value.typed_config.http_service.authorization_request.allowed_headers.patterns[0].exact == "cookie"`),
+			jq.Match(extAuthzPatchJq+`.patch.value.typed_config.http_service.authorization_response.allowed_client_headers.patterns[0].exact == "set-cookie"`),
+			jq.Match(extAuthzPatchJq+`.patch.value.typed_config.http_service.authorization_response.allowed_upstream_headers.patterns | any(.exact == "x-auth-request-user")`),
+			jq.Match(extAuthzPatchJq+`.patch.value.typed_config.http_service.authorization_response.allowed_upstream_headers.patterns | any(.exact == "x-auth-request-email")`),
+			jq.Match(extAuthzPatchJq+`.patch.value.typed_config.http_service.authorization_response.allowed_upstream_headers.patterns | any(.exact == "x-auth-request-access-token")`),
 
-			// ext_authz config - uses Istio's EDS cluster for better load balancing across all pods
-			jq.Match(`.spec.configPatches[0].patch.value.typed_config.http_service.server_uri.cluster == "%s"`, istioEDSClusterName),
-			jq.Match(`.spec.configPatches[0].patch.value.typed_config.http_service.server_uri.timeout == "5s"`),
-			jq.Match(`.spec.configPatches[0].patch.value.typed_config.http_service.server_uri.uri == "%s"`, authProxyURI),
-
-			// ext_authz allowed headers
-			jq.Match(`.spec.configPatches[0].patch.value.typed_config.http_service.authorization_request.allowed_headers.patterns[0].exact == "cookie"`),
-			jq.Match(`.spec.configPatches[0].patch.value.typed_config.http_service.authorization_response.allowed_client_headers.patterns[0].exact == "set-cookie"`),
-			jq.Match(`.spec.configPatches[0].patch.value.typed_config.http_service.authorization_response.allowed_upstream_headers.patterns | any(.exact == "x-auth-request-user")`),
-			jq.Match(`.spec.configPatches[0].patch.value.typed_config.http_service.authorization_response.allowed_upstream_headers.patterns | any(.exact == "x-auth-request-email")`),
-			jq.Match(`.spec.configPatches[0].patch.value.typed_config.http_service.authorization_response.allowed_upstream_headers.patterns | any(.exact == "x-auth-request-access-token")`),
-
-			// Patch 1: Lua filter token forwarding
-			jq.Match(`.spec.configPatches[1].applyTo == "HTTP_FILTER"`),
-			jq.Match(`.spec.configPatches[1].patch.value.name == "envoy.filters.http.lua"`),
-			jq.Match(`.spec.configPatches[1].patch.value.typed_config.inline_code | contains("x-auth-request-access-token")`),
-			jq.Match(`.spec.configPatches[1].patch.value.typed_config.inline_code | contains("x-forwarded-access-token")`),
-			jq.Match(`.spec.configPatches[1].patch.value.typed_config.inline_code | contains("Bearer")`),
-			jq.Match(`.spec.configPatches[1].patch.value.typed_config.inline_code | contains("authorization")`),
+			// Lua token-forwarding patch exists (envoy.filters.http.lua or legacy envoy.lua)
+			jq.Match(luaTokenListJq+` | length == 1`),
+			jq.Match(luaTokenPatchJq+`.patch.value.typed_config.inline_code | contains("x-forwarded-access-token")`),
+			jq.Match(luaTokenPatchJq+`.patch.value.typed_config.inline_code | contains("Bearer")`),
+			jq.Match(luaTokenPatchJq+`.patch.value.typed_config.inline_code | contains("authorization")`),
 		)),
 		WithCustomErrorMsg("EnvoyFilter should be properly configured for authentication"),
 	)
