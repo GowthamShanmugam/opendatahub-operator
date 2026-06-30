@@ -76,8 +76,57 @@ data:
     #    }
 
     }
+  deprecation.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta http-equiv="refresh" content="10;url=REDIRECT_URL">
+      <title>URL has moved</title>
+      <style>
+        body { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: #333; margin: 20px; }
+        h1 { font-size: 20px; font-weight: 600; margin-bottom: 16px; }
+        p { font-size: 15px; line-height: 1.6; margin-bottom: 12px; }
+        a { color: #06c; }
+        .note { color: #888; font-size: 13px; margin-top: 20px; }
+      </style>
+    </head>
+    <body>
+      <h1>This URL has moved.</h1>
+      <p>Please update your bookmark to: <a href="REDIRECT_URL">REDIRECT_HOST</a></p>
+      <p class="note">You will be redirected in <span id="t">10</span> seconds.</p>
+      <script>var s=10,e=document.getElementById("t");setInterval(function(){if(s>0){s--;e.textContent=s;}},1000);</script>
+    </body>
+    </html>
   redirect.conf: |
     location / {
-        add_header Cache-Control "no-store, no-cache, must-revalidate";
-        return 301 https://{{.GatewayHostname}}$request_uri;
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        add_header Deprecation "true" always;
+
+        set $target "https://{{.GatewayHostname}}$request_uri";
+
+        # Browsers get an HTML deprecation notice before redirect.
+        # All other clients (scripts, APIs) get instant 301.
+        if ($http_accept ~* "text/html") {
+            rewrite ^ /deprecation last;
+        }
+
+        return 301 $target;
+    }
+
+    location = /deprecation {
+        internal;
+        root /opt/app-root/src;
+        default_type "text/html; charset=utf-8";
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        add_header Deprecation "true" always;
+        add_header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" always;
+
+        set $target "https://{{.GatewayHostname}}$request_uri";
+        sub_filter "REDIRECT_URL" $target;
+        sub_filter "REDIRECT_HOST" "https://{{.GatewayHostname}}/";
+        sub_filter_once off;
+        sub_filter_types text/html;
+
+        try_files /deprecation.html =404;
     }

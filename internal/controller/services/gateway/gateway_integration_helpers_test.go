@@ -1608,6 +1608,10 @@ func RunNginxDashboardRedirectCreationTest(t *testing.T, setup TestSetup) {
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(gatewayHost).NotTo(BeEmpty())
 	g.Expect(redirectConf).To(ContainSubstring("https://" + gatewayHost))
+	g.Expect(redirectConf).To(ContainSubstring("Deprecation"))
+	g.Expect(redirectConf).To(ContainSubstring("http_accept"))
+	g.Expect(cm.Data).To(HaveKey("deprecation.html"))
+	g.Expect(cm.Data["deprecation.html"]).To(ContainSubstring("This URL has moved"))
 
 	// Deployment
 	var dep appsv1.Deployment
