@@ -90,7 +90,7 @@ func createGatewayInfrastructure(ctx context.Context, rr *odhtypes.Reconciliatio
 
 	l.V(1).Info("Successfully created Gateway infrastructure",
 		"gateway", DefaultGatewayName,
-		"namespace", GatewayNamespace,
+		"namespace", GetGatewayNamespace(),
 		"domain", hostname,
 		"certificateType", getCertificateType(gatewayConfig))
 
@@ -108,9 +108,18 @@ func createKubeAuthProxyInfrastructure(ctx context.Context, rr *odhtypes.Reconci
 
 	l.V(1).Info("creating auth proxy for gateway", "gateway", gatewayConfig.Name)
 
-	authMode, err := cluster.GetClusterAuthenticationMode(ctx, rr.Client)
-	if err != nil {
-		return fmt.Errorf("failed to detect cluster authentication mode: %w", err)
+	var authMode cluster.AuthenticationMode
+	if cluster.GetClusterInfo().Type == cluster.ClusterTypeKubernetes {
+		if gatewayConfig.Spec.OIDC != nil {
+			authMode = cluster.AuthModeOIDC
+		} else {
+			authMode = cluster.AuthModeNone
+		}
+	} else {
+		authMode, err = cluster.GetClusterAuthenticationMode(ctx, rr.Client)
+		if err != nil {
+			return fmt.Errorf("failed to detect cluster authentication mode: %w", err)
+		}
 	}
 	l.V(1).Info("detected cluster authentication mode", "mode", authMode)
 
@@ -185,6 +194,17 @@ func createKubeAuthProxyInfrastructure(ctx context.Context, rr *odhtypes.Reconci
 		}
 		l.V(1).Info("OAuth client created successfully")
 	}
+	// On XKS, generate a self-signed TLS cert for kube-auth-proxy (OCP uses serving-cert annotation instead)
+	if cluster.GetClusterInfo().Type == cluster.ClusterTypeKubernetes {
+		kapServiceDNS := fmt.Sprintf("%s.%s.svc.cluster.local", KubeAuthProxyName, GetGatewayNamespace())
+		if err := cluster.CreateSelfSignedCertificate(ctx, rr.Client, KubeAuthProxyTLSName, kapServiceDNS, GetGatewayNamespace(),
+			cluster.WithLabels(labels.PlatformPartOf, ServiceName),
+		); err != nil {
+			return fmt.Errorf("failed to create kube-auth-proxy TLS certificate: %w", err)
+		}
+		l.V(1).Info("Created self-signed TLS cert for kube-auth-proxy", "secret", KubeAuthProxyTLSName)
+	}
+
 	rr.Templates = append(rr.Templates, kubeAuthProxyDeploymentTemplates)
 	// Add other KubeAuthProxy templates to the reconciliation request
 	kubeAuthProxyCommonTemplates := []odhtypes.TemplateInfo{
@@ -290,7 +310,7 @@ func getTemplateData(ctx context.Context, rr *odhtypes.ReconciliationRequest) (m
 	authSecret := &corev1.Secret{}
 	if err := rr.Client.Get(ctx, types.NamespacedName{
 		Name:      KubeAuthProxySecretsName,
-		Namespace: GatewayNamespace,
+		Namespace: GetGatewayNamespace(),
 	}, authSecret); err != nil {
 		// secret doesn't exist yet, use empty hash
 		if !k8serr.IsNotFound(err) {
@@ -308,7 +328,8 @@ func getTemplateData(ctx context.Context, rr *odhtypes.ReconciliationRequest) (m
 	legacyInfo := computeLegacyRedirectInfo(gatewayConfig, hostname)
 
 	templateData := map[string]any{
-		"GatewayNamespace":         GatewayNamespace,
+		"IsOpenShift":              cluster.GetClusterInfo().Type != cluster.ClusterTypeKubernetes,
+		"GatewayNamespace":         GetGatewayNamespace(),
 		"GatewayName":              DefaultGatewayName,
 		"GatewayHostname":          hostname,
 		"GatewayServiceName":       GatewayServiceFullName,
@@ -337,7 +358,7 @@ func getTemplateData(ctx context.Context, rr *odhtypes.ReconciliationRequest) (m
 		"PartOfLabelKey":           labels.K8SCommon.PartOf,
 		"PartOfLabelValue":         PartOfLabelValue,
 		"IstioRevisionLabel":       IstioRevisionLabel,
-		"IstioRevisionValue":       IstioRevisionValue,
+		"IstioRevisionValue":       GetIstioRevisionValue(),
 		"PartOfGatewayConfig":      PartOfGatewayConfig,
 		"GatewayNameLabelKey":      labels.GatewayAPI.GatewayName,
 		"LegacySubdomain":          legacyInfo.LegacySubdomain,
@@ -410,7 +431,7 @@ func syncGatewayConfigStatus(ctx context.Context, rr *odhtypes.ReconciliationReq
 	gateway := &gwapiv1.Gateway{}
 	err = rr.Client.Get(ctx, types.NamespacedName{
 		Name:      DefaultGatewayName,
-		Namespace: GatewayNamespace,
+		Namespace: GetGatewayNamespace(),
 	}, gateway)
 	if err != nil {
 		if client.IgnoreNotFound(err) == nil {

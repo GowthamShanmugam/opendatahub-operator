@@ -591,7 +591,7 @@ func MigrateGatewayConfigIngressMode(ctx context.Context, cli client.Client) err
 	gatewayService := &corev1.Service{}
 	err = cli.Get(ctx, client.ObjectKey{
 		Name:      gateway.GatewayServiceFullName,
-		Namespace: gateway.GatewayNamespace,
+		Namespace: gateway.GetGatewayNamespace(),
 	}, gatewayService)
 	switch {
 	case k8serr.IsNotFound(err):
