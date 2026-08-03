@@ -53,6 +53,7 @@ func (h *ServiceHandler) NewReconciler(ctx context.Context, mgr ctrl.Manager) er
 		OwnsGVK(gvk.HorizontalPodAutoscaler).
 		OwnsGVK(gvk.HTTPRoute).
 		OwnsGVK(gvk.Route, reconciler.Dynamic(reconciler.ClusterIsOpenShift())).
+		OwnsGVK(gvk.Ingress).
 		OwnsGVK(gvk.ClusterRoleBinding).
 		OwnsGVK(gvk.EnvoyFilter, reconciler.Dynamic(reconciler.CrdExists(gvk.EnvoyFilter))).
 		OwnsGVK(gvk.DestinationRule, reconciler.Dynamic(reconciler.CrdExists(gvk.DestinationRule))).
@@ -90,6 +91,7 @@ func (h *ServiceHandler) NewReconciler(ctx context.Context, mgr ctrl.Manager) er
 		WithAction(createEnvoyFilter).
 		WithAction(createNetworkPolicy).
 		WithAction(createOCPRoutes).
+		WithAction(createK8sIngress).
 		WithAction(createDashboardRedirects).
 		WithAction(template.NewAction(
 			template.WithDataFn(getTemplateData),

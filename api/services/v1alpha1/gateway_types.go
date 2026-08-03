@@ -33,7 +33,7 @@ const (
 )
 
 // IngressMode defines how the Gateway exposes its endpoints externally.
-// +kubebuilder:validation:Enum=OcpRoute;LoadBalancer
+// +kubebuilder:validation:Enum=OcpRoute;LoadBalancer;K8sRoute
 type IngressMode string
 
 const (
@@ -43,6 +43,9 @@ const (
 	// IngressModeLoadBalancer uses a LoadBalancer service type.
 	// This requires a load balancer provider (cloud or MetalLB).
 	IngressModeLoadBalancer IngressMode = "LoadBalancer"
+	// IngressModeK8sRoute uses ClusterIP service with a standard Kubernetes Ingress CR.
+	// Targets bare-metal XKS clusters with existing ingress infrastructure (NGINX, Traefik, etc.).
+	IngressModeK8sRoute IngressMode = "K8sRoute"
 )
 
 // Check that the component implements common.PlatformObject.
@@ -121,6 +124,11 @@ type GatewayConfigSpec struct {
 	// +optional
 	// +kubebuilder:default=true
 	EnableK8sTokenValidation *bool `json:"enableK8sTokenValidation,omitempty"`
+
+	// K8sRoute configuration for K8sRoute ingress mode.
+	// Required when ingressMode is set to K8sRoute.
+	// +optional
+	K8sRoute *K8sRouteConfig `json:"k8sRoute,omitempty"`
 }
 
 // NetworkPolicyConfig defines network policy configuration for kube-auth-proxy.
@@ -141,6 +149,16 @@ type IngressPolicyConfig struct {
 	// When true, creates NetworkPolicy allowing traffic only from Gateway pods and monitoring namespaces.
 	// +kubebuilder:validation:Required
 	Enabled bool `json:"enabled"`
+}
+
+// K8sRouteConfig defines configuration for K8sRoute ingress mode.
+// This mode creates a Kubernetes Ingress CR pointing to the Gateway ClusterIP service,
+// allowing clusters with existing ingress controllers to route traffic to the gateway.
+type K8sRouteConfig struct {
+	// IngressClassName specifies which ingress controller handles the Ingress CR.
+	// Must match the ingressClassName of an existing IngressClass on the cluster (e.g., "nginx", "traefik").
+	// +kubebuilder:validation:Required
+	IngressClassName string `json:"ingressClassName"`
 }
 
 // OIDCConfig defines OIDC provider configuration

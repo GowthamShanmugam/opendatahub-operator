@@ -36,6 +36,7 @@ const (
 const (
 	// Gateway infrastructure constants.
 	GatewayNamespace        = "openshift-ingress"                  // Namespace where Gateway resources are deployed
+	XKSGatewayNamespace     = "data-science-gateway"               // Namespace for gateway resources on XKS
 	GatewayClassName        = "data-science-gateway-class"         // GatewayClass name for gateway resources
 	GatewayControllerName   = "openshift.io/gateway-controller/v1" // OpenShift Gateway API controller name
 	DefaultGatewayName      = "data-science-gateway"               // Default gateway resource name
@@ -95,10 +96,10 @@ const (
 
 // GetGatewayNamespace returns the namespace where gateway resources are deployed.
 // On OpenShift: "openshift-ingress" (fixed by the platform).
-// On XKS (vanilla K8s): uses the application namespace.
+// On XKS (vanilla K8s): "data-science-gateway" (separate from application namespace).
 func GetGatewayNamespace() string {
 	if cluster.GetClusterInfo().Type == cluster.ClusterTypeKubernetes {
-		return cluster.GetApplicationNamespace()
+		return XKSGatewayNamespace
 	}
 	return GatewayNamespace
 }
@@ -135,6 +136,7 @@ const (
 	kubeAuthProxyClusterRoleBindingTemplate = "resources/kube-auth-proxy-clusterrolebinding.tmpl.yaml"
 	networkPolicyTemplate                   = "resources/kube-auth-proxy-networkpolicy.yaml"
 	ocpRouteTemplate                        = "resources/gateway-ocp-route.tmpl.yaml"
+	k8sIngressTemplate                      = "resources/gateway-k8s-ingress.tmpl.yaml"
 )
 
 // GetFQDN returns the fully qualified domain name for the gateway based on the GatewayConfig.
@@ -322,7 +324,7 @@ func createGateway(rr *odhtypes.ReconciliationRequest, certSecretName string, do
 			AllowedRoutes: allowedRoutes,
 		}
 
-		if ingressMode != serviceApi.IngressModeOcpRoute {
+		if ingressMode == serviceApi.IngressModeLoadBalancer {
 			hostname := gwapiv1.Hostname(domain)
 			httpsListener.Hostname = &hostname
 		}
@@ -331,7 +333,7 @@ func createGateway(rr *odhtypes.ReconciliationRequest, certSecretName string, do
 
 		// Add legacy listener for LoadBalancer mode to accept requests for legacy hostname
 		// (EnvoyFilter will redirect these to the new hostname)
-		if ingressMode != serviceApi.IngressModeOcpRoute && legacyDomain != "" {
+		if ingressMode == serviceApi.IngressModeLoadBalancer && legacyDomain != "" {
 			legacyHostname := gwapiv1.Hostname(legacyDomain)
 			legacyListener := gwapiv1.Listener{
 				Name:          "https-legacy",
@@ -359,8 +361,8 @@ func createGateway(rr *odhtypes.ReconciliationRequest, certSecretName string, do
 		},
 	}
 
-	if ingressMode == serviceApi.IngressModeOcpRoute {
-		if err := configureClusterIPInfrastructure(rr, gateway); err != nil {
+	if ingressMode == serviceApi.IngressModeOcpRoute || ingressMode == serviceApi.IngressModeK8sRoute {
+		if err := configureClusterIPInfrastructure(rr, gateway, ingressMode); err != nil {
 			return err
 		}
 	}
@@ -370,13 +372,22 @@ func createGateway(rr *odhtypes.ReconciliationRequest, certSecretName string, do
 
 // configureClusterIPInfrastructure creates a ConfigMap for ClusterIP service configuration
 // and sets the Gateway's infrastructure reference.
-func configureClusterIPInfrastructure(rr *odhtypes.ReconciliationRequest, gateway *gwapiv1.Gateway) error {
-	serviceConfig := fmt.Sprintf(`metadata:
+// On OpenShift (OcpRoute), the ConfigMap includes a service-CA annotation for automatic TLS.
+// On XKS (K8sRoute), only the ClusterIP type override is set (no service-CA on vanilla K8s).
+func configureClusterIPInfrastructure(rr *odhtypes.ReconciliationRequest, gateway *gwapiv1.Gateway, ingressMode serviceApi.IngressMode) error {
+	var serviceConfig string
+	if ingressMode == serviceApi.IngressModeOcpRoute {
+		serviceConfig = fmt.Sprintf(`metadata:
   annotations:
     service.beta.openshift.io/serving-cert-secret-name: "%s"
 spec:
   type: ClusterIP
 `, GatewayServiceTLSSecretName)
+	} else {
+		serviceConfig = `spec:
+  type: ClusterIP
+`
+	}
 
 	infraConfigMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -700,12 +711,17 @@ func getAuthProxySecretValues(
 func detectAndSetIngressMode(ctx context.Context, rr *odhtypes.ReconciliationRequest, gatewayConfig *serviceApi.GatewayConfig) error {
 	l := logf.FromContext(ctx).WithName("detectAndSetIngressMode")
 
-	// On XKS, OcpRoute is not available — default to LoadBalancer
+	// On XKS, OcpRoute is not available — default based on K8sRoute config presence
 	if cluster.GetClusterInfo().Type == cluster.ClusterTypeKubernetes {
-		l.Info("XKS platform detected, defaulting to LoadBalancer ingress mode")
-		gatewayConfig.Spec.IngressMode = serviceApi.IngressModeLoadBalancer
+		if gatewayConfig.Spec.K8sRoute != nil {
+			l.Info("XKS platform detected with K8sRoute config, defaulting to K8sRoute ingress mode")
+			gatewayConfig.Spec.IngressMode = serviceApi.IngressModeK8sRoute
+		} else {
+			l.Info("XKS platform detected, defaulting to LoadBalancer ingress mode")
+			gatewayConfig.Spec.IngressMode = serviceApi.IngressModeLoadBalancer
+		}
 		if err := rr.Client.Update(ctx, gatewayConfig); err != nil {
-			return fmt.Errorf("failed to update GatewayConfig with LoadBalancer mode: %w", err)
+			return fmt.Errorf("failed to update GatewayConfig with detected mode: %w", err)
 		}
 		return nil
 	}
@@ -760,7 +776,7 @@ func reconcileGatewayForModeChange(ctx context.Context, rr *odhtypes.Reconciliat
 		return fmt.Errorf("failed to get Gateway: %w", err)
 	}
 
-	// OcpRoute: no hostname, has infrastructure
+	// OcpRoute / K8sRoute: no hostname, has infrastructure (ClusterIP)
 	// LoadBalancer: has hostname, no infrastructure
 	var hasHostname bool
 	for _, listener := range gateway.Spec.Listeners {
@@ -772,7 +788,7 @@ func reconcileGatewayForModeChange(ctx context.Context, rr *odhtypes.Reconciliat
 	hasInfrastructure := gateway.Spec.Infrastructure != nil
 
 	wantsHostname := desiredMode == serviceApi.IngressModeLoadBalancer
-	wantsInfrastructure := desiredMode == serviceApi.IngressModeOcpRoute
+	wantsInfrastructure := desiredMode == serviceApi.IngressModeOcpRoute || desiredMode == serviceApi.IngressModeK8sRoute
 
 	if hasHostname == wantsHostname && hasInfrastructure == wantsInfrastructure {
 		return nil

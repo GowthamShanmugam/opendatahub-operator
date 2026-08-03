@@ -129,12 +129,17 @@ func (a *Action) render(ctx context.Context, rr *types.ReconciliationRequest) (r
 
 	data[ComponentKey] = rr.Instance
 
-	// Fetch application namespace from DSCI.
-	appNamespace, err := cluster.ApplicationNamespace(ctx, rr.Client)
-	if err != nil {
-		return nil, err
+	// On XKS (vanilla K8s), DSCI does not exist — use the cached application namespace.
+	// On OpenShift, read from DSCI for consistency.
+	if cluster.GetClusterInfo().Type == cluster.ClusterTypeKubernetes {
+		data[AppNamespaceKey] = cluster.GetApplicationNamespace()
+	} else {
+		appNamespace, err := cluster.ApplicationNamespace(ctx, rr.Client)
+		if err != nil {
+			return nil, err
+		}
+		data[AppNamespaceKey] = appNamespace
 	}
-	data[AppNamespaceKey] = appNamespace
 
 	result := make(resources.UnstructuredList, 0)
 

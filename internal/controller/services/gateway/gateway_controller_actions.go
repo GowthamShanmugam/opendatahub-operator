@@ -373,6 +373,11 @@ func getTemplateData(ctx context.Context, rr *odhtypes.ReconciliationRequest) (m
 	templateData["DashboardRedirectImage"] = getDashboardRedirectImage()
 	templateData["RedirectConfigHash"] = CalculateRedirectConfigHash(hostname)
 
+	// Add K8sRoute-specific fields only if K8sRoute config is present
+	if gatewayConfig.Spec.K8sRoute != nil {
+		templateData["K8sRouteIngressClassName"] = gatewayConfig.Spec.K8sRoute.IngressClassName
+	}
+
 	// Add OIDC-specific fields only if OIDC config is present
 	if gatewayConfig.Spec.OIDC != nil {
 		templateData["OIDCIssuerURL"] = gatewayConfig.Spec.OIDC.IssuerURL

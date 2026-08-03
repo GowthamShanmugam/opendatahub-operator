@@ -3613,7 +3613,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ingressMode` _[IngressMode](#ingressmode)_ | IngressMode specifies how the Gateway is exposed externally.<br />"OcpRoute" uses ClusterIP with standard OpenShift Routes (default for new deployments).<br />"LoadBalancer" uses a LoadBalancer service type (requires cloud or MetalLB). |  | Enum: [OcpRoute LoadBalancer] <br /> |
+| `ingressMode` _[IngressMode](#ingressmode)_ | IngressMode specifies how the Gateway is exposed externally.<br />"OcpRoute" uses ClusterIP with standard OpenShift Routes (default for new deployments).<br />"LoadBalancer" uses a LoadBalancer service type (requires cloud or MetalLB). |  | Enum: [OcpRoute LoadBalancer K8sRoute] <br /> |
 | `oidc` _[OIDCConfig](#oidcconfig)_ | OIDC configuration (used when cluster is in OIDC authentication mode) |  |  |
 | `certificate` _[CertificateSpec](#certificatespec)_ | Certificate specifies configuration of the TLS certificate securing communication for the gateway. |  |  |
 | `domain` _string_ | Domain specifies the host name for intercepting incoming requests.<br />Most likely, you will want to use a wildcard name, like *.example.com.<br />If not set, the domain of the OpenShift Ingress is used.<br />If you choose to generate a certificate, this is the domain used for the certificate request.<br />Example: *.example.com, example.com, apps.example.com |  | Pattern: `^(\*\.)?([a-z0-9]([-a-z0-9]*[a-z0-9])?\.)*[a-z0-9]([-a-z0-9]*[a-z0-9])?$` <br /> |
@@ -3625,6 +3625,7 @@ _Appears in:_
 | `providerCASecretName` _string_ | ProviderCASecretName is the name of the secret containing the CA certificate for the authentication provider<br />Used when the OAuth/OIDC provider uses a self-signed or custom CA certificate.<br />Secret must exist in the openshift-ingress namespace and contain a 'ca.crt' key with the PEM-encoded CA certificate. |  |  |
 | `verifyProviderCertificate` _boolean_ | VerifyProviderCertificate controls TLS certificate verification for the authentication provider.<br />When true (default), certificates are verified against the system trust store and providerCASecretName.<br />When false, certificate verification is disabled (development/testing only).<br />WARNING: Setting this to false disables security and should only be used in non-production environments.<br />For production use with self-signed certificates, use ProviderCASecretName instead. | true |  |
 | `enableK8sTokenValidation` _boolean_ | EnableK8sTokenValidation enables Kubernetes service account token validation via TokenReview API.<br />When enabled, kube-auth-proxy validates bearer tokens as service account tokens alongside OAuth/OIDC authentication.<br />This allows service accounts to authenticate via bearer tokens while human users authenticate via OAuth/OIDC. | true |  |
+| `k8sRoute` _[K8sRouteConfig](#k8srouteconfig)_ | K8sRoute configuration for K8sRoute ingress mode.<br />Required when ingressMode is set to K8sRoute. |  |  |
 
 
 #### GatewayConfigStatus
@@ -3653,7 +3654,7 @@ _Underlying type:_ _string_
 IngressMode defines how the Gateway exposes its endpoints externally.
 
 _Validation:_
-- Enum: [OcpRoute LoadBalancer]
+- Enum: [OcpRoute LoadBalancer K8sRoute]
 
 _Appears in:_
 - [GatewayConfigSpec](#gatewayconfigspec)
@@ -3662,6 +3663,7 @@ _Appears in:_
 | --- | --- |
 | `OcpRoute` | IngressModeOcpRoute uses ClusterIP service with standard OpenShift Routes.<br />This is the default for new deployments and works without additional infrastructure.<br /> |
 | `LoadBalancer` | IngressModeLoadBalancer uses a LoadBalancer service type.<br />This requires a load balancer provider (cloud or MetalLB).<br /> |
+| `K8sRoute` | IngressModeK8sRoute uses ClusterIP service with a standard Kubernetes Ingress CR.<br />Targets bare-metal XKS clusters with existing ingress infrastructure (NGINX, Traefik, etc.).<br /> |
 
 
 #### IngressPolicyConfig
@@ -3678,6 +3680,24 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `enabled` _boolean_ | Enabled determines whether ingress rules are applied.<br />When true, creates NetworkPolicy allowing traffic only from Gateway pods and monitoring namespaces. |  | Required: \{\} <br /> |
+
+
+#### K8sRouteConfig
+
+
+
+K8sRouteConfig defines configuration for K8sRoute ingress mode.
+This mode creates a Kubernetes Ingress CR pointing to the Gateway ClusterIP service,
+allowing clusters with existing ingress controllers to route traffic to the gateway.
+
+
+
+_Appears in:_
+- [GatewayConfigSpec](#gatewayconfigspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `ingressClassName` _string_ | IngressClassName specifies which ingress controller handles the Ingress CR.<br />Must match the ingressClassName of an existing IngressClass on the cluster (e.g., "nginx", "traefik"). |  | Required: \{\} <br /> |
 
 
 #### Metrics

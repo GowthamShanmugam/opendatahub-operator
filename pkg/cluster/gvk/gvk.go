@@ -733,6 +733,12 @@ var (
 		Kind:    "NetworkPolicy",
 	}
 
+	Ingress = schema.GroupVersionKind{
+		Group:   networkingv1.SchemeGroupVersion.Group,
+		Version: networkingv1.SchemeGroupVersion.Version,
+		Kind:    "Ingress",
+	}
+
 	MonitoringStack = schema.GroupVersionKind{
 		Group:   "monitoring.rhobs",
 		Version: "v1alpha1",
